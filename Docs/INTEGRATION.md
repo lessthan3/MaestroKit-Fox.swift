@@ -604,11 +604,11 @@ Stats panels (Goal Matrix, Game Momentum, Match Timeline, Team Stats, Expected v
 
 ```swift
 mgr.setStatsAPIConfig(
-    baseUrl: "https://prod-bifrost-api.foxplus.com/v1/main/events/components/",
+    baseUrl: "https://stats.fox.com/v1/main/events/components/",
     paths: [
-        "FS1_f12aca52-ffd6-45fa-8703-0624fe120c1a_clone": "soccer/ucl/events/627032",
-        "KP_multi_test_event_2":                          "soccer/serie_a/events/625526",
-        "KP_multi_test_event_3":                          "soccer/serie_a/events/625526"
+        "<LISTING_ID_A>": "soccer/<competition>/events/<sportEventId>",
+        "<LISTING_ID_B>": "soccer/<competition>/events/<otherSportEventId>",
+        "<LISTING_ID_C>": "soccer/<competition>/events/<otherSportEventId>"  // two listings can share one event
     ],
     method: "GET",
     headers: ["x-fox-apikey": apiKey]
@@ -764,7 +764,9 @@ Overlays are deduplicated by `event.id`. Two overlay events with the **same** id
 
 ### 15.18 Working environment
 
-`configure(maestroWorkingEnvironment:)` accepts the enum but the kit currently does not branch on it for the multiview base URL. To point at QA, set `overrideBaseUrl` explicitly via `setMultiViewAPIConfig(overrideBaseUrl:token:)` or the structured override with `multiViewAPIConfig.overrideBaseUrl`.
+`configure(maestroWorkingEnvironment:)` selects the Maestro-hosted backends the SDK talks to: panel/page config, the What Just Happened feed, and analytics. `.prod` uses production; `.test` and `.qa` both use Maestro's non-production hosts. You don't configure any of those URLs yourself.
+
+It does **not** affect the multiview base URL — that one is yours, not Maestro's. To point multiview at a non-production backend, set `overrideBaseUrl` explicitly via `setMultiViewAPIConfig(overrideBaseUrl:token:)` or the structured override with `multiViewAPIConfig.overrideBaseUrl`.
 
 ### 15.19 Order of operations per event
 

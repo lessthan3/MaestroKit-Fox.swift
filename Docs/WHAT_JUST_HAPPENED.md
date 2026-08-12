@@ -118,6 +118,8 @@ In the integrated path **the host configures nothing WJH-specific.** Site and en
 
 The **module** pill only surfaces moments the server has flagged as noteworthy enough, so it may stay hidden while the **panel** timeline already has content. An empty pill with a populated panel tab is expected behavior, not a defect.
 
+The pill is also suppressed while the viewer is **reading the What Just Happened tab** — anything that arrives while that tab is on screen is already in front of them, so it's marked seen rather than popped over the player. Other panel tabs don't suppress it: a moment that lands while the viewer is on Stats, Key Plays, or Multiview still pops the pill.
+
 ---
 
 ## 7. Reference: public types
