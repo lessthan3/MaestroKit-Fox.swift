@@ -76,6 +76,12 @@ You do not drive any of these transitions yourself — the SDK view handles the 
 
 The module is focusable on tvOS. Keep it in its own focus section and make sure it isn't trapped behind a sibling that captures focus, or the pill won't be reachable. See [`INTEGRATION.md` §15.7](./INTEGRATION.md#157-tvos-focus).
 
+The pill takes focus when it surfaces, and pressing through to the expanded state moves focus onto **Explore More** so the primary action is one press away. Moving focus to the other CTA yourself pauses the auto-hide until you choose; the automatic landing on Explore More does not, so the bar still times out if it's ignored.
+
+While the module is **Expanded** it holds focus: directional presses stay on the pill and its two buttons rather than falling through to your player controls. The viewer leaves via **Dismiss**, **Explore More**, or the remote's Menu/Back button — all three hand focus straight back to your UI. The compact **Pill** state does not hold focus, so a viewer who ignores it can move away freely.
+
+If your `MaestroEventDelegate` answers `shouldShowWhatJustHappened(fact:)` with `.shownWithoutFocus`, the module surfaces without taking focus at all — use it when the viewer is mid-interaction somewhere else in your UI.
+
 ---
 
 ## 4. Surface B — the WJH panel tab
@@ -131,6 +137,7 @@ Host-facing entry points:
 | `MaestroWhatJustHappenedModule()` | SwiftUI view — the floating pill/expanded module |
 | `MaestroPanel(width:)` | Hosts the WJH tab (and all other Fox panels) |
 | `MaestroEventDelegate.shouldShowPanel()` | Must present the panel; powers "Explore More" |
+| `MaestroEventDelegate.shouldShowWhatJustHappened(fact:)` | Per-moment gate — `.shownWithFocus` (default), `.shownWithoutFocus` (surface without taking focus), or `.hidden` (hold it for the next poll) |
 
 ---
 
@@ -190,6 +197,9 @@ struct PlayerScreen: View {
 - **"Explore More" does nothing.** Your `shouldShowPanel()` isn't presenting the panel. Fix the panel show/hide contract.
 - **Module is mounted but invisible.** That's correct in the Hidden phase — it draws nothing. Don't conditionally remove it; leave it mounted so it can appear when a moment surfaces.
 - **tvOS pill unreachable.** A sibling is trapping focus. Give the module its own focus section.
+- **The tab shows "No Insights Yet" straight away.** The event has no WJH feed behind it. The tab settles into the empty state rather than holding a loading skeleton, so an unconfigured event looks empty, not broken. Content that loads slowly still replaces it when it arrives.
+- **The tab appears on tvOS but not on iPhone/iPad.** Panels are enabled per platform in your site config, and iPadOS counts as iOS here. A panel left unset for `ios` inherits the tvOS setting; one explicitly disabled for `ios` is absent on both iPhone and iPad while still showing on Apple TV.
+- **No WJH tab on a multi-event session.** What Just Happened is scoped to a single event and is excluded whenever the host reports more than one event ID to `userDidStartWatchingEvents(_:)`. Start a single-event session to get it back.
 - **Stale recaps after switching events.** WJH is tied to the active event. Call `userDidStopWatchingEvents([…])` before starting the next event so WJH is rebuilt for it.
 - **Don't mount the module twice.** `MaestroWhatJustHappenedModule` manages its own observation; mounting it more than once creates duplicate observers.
 

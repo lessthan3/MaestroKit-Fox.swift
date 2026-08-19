@@ -30,13 +30,13 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "MaestroKitFox",
-            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.9.0/MaestroKitFox.xcframework.zip",
-            checksum: "54629eb4c5267b23a892f9789d0ab2abc868d536223828bcd3061527f22f9945"
+            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.9.1/MaestroKitFox.xcframework.zip",
+            checksum: "9722df81f3802989e9e84f5c2d8fc8631c0fbeb31b4900a16df7b5606c90ee28"
         ),
         .binaryTarget(
             name: "MaestroCore",
-            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.9.0/MaestroCore.xcframework.zip",
-            checksum: "31317416e6e17fa62dcfc09020a1e6946da9e59feaf31c1d90767693a050ca58"
+            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.9.1/MaestroCore.xcframework.zip",
+            checksum: "ba470a7b10b648109b44ef2724acaf9021d1e9aa1736535642a4530a12061d9b"
         ),
         .binaryTarget(
             name: "foxKit",
