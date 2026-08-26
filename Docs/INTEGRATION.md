@@ -629,6 +629,12 @@ Unlike `setKeyPlaysAPIConfig` (a single URL) and `setProductAPIConfig` / `setMul
 
 The SDK does not surface a `sportEventURI` field on `childListings` and does not fetch URIs on your behalf. You must obtain them yourself — typically from your own catalog/backend, keyed by listingId — and feed them into `paths`.
 
+### URL handling
+
+`baseUrl` must be an absolute `http`/`https` URL with a host. Surrounding whitespace and quotes are trimmed first, so a value still wrapped in its JSON quotes — `"https://stats.fox.com"` — works; `paths` values are trimmed the same way.
+
+A `baseUrl` that still isn't usable is **ignored and logged**, leaving the previous config in place (via `setDataToPanel`, the call fails with `.invalidOverrideValue`). The same applies to `setProductAPIConfig`, `setKeyPlaysAPIConfig`, and `setMultiViewAPIConfig(overrideBaseUrl:)`.
+
 ---
 
 ## 13. Analytics
@@ -800,6 +806,7 @@ There is no `sportEventURI` field on `childListings` and the SDK does not resolv
 | Multiview tiles laid out wrong | Forgot to convert SDK coords | Y origin is bottom; positions are center-based. |
 | Stats panel 401s repeatedly | Token expired, not refreshed | Implement `onPanelEvent` and refresh + re-apply. |
 | Stats panel empty after entering multiview | New listingIds not in stats `paths` dict | Re-apply `setStatsAPIConfig` with cumulative map before `updateEventData` — see §12, §15.20. |
+| A panel stays empty and the log shows "ignoring unusable URL" | The `baseUrl` / `url` passed isn't an absolute http(s) URL | Check the value reaching the setter — see §12, "URL handling". |
 | Fonts wrong | `MaestroManager.shared` never accessed at launch | Touch the singleton on app start. |
 | `setDataToPanel` returns `.unsupportedPanelIdentifier` | Wrong panel name | Use exactly `foxStats`, `foxKeyPlays`, `foxMultiview`. |
 | Restore-from-clip returns to single stream instead of layout | Missing `snapshotCurrentMultiview()` call | Snapshot before navigating away. |
