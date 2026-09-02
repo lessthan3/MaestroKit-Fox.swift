@@ -72,11 +72,24 @@ The module moves through three phases, all driven by the SDK:
 
 You do not drive any of these transitions yourself — the SDK view handles the gestures and focus.
 
+### Showing and dismissing it yourself
+
+Two optional calls on the `MaestroEventInterface` you get back from `userDidStartWatchingEvent(...)` let you drive the module directly:
+
+```swift
+interface.showWhatJustHappenedModule()      // surface the latest recap now
+interface.dismissWhatJustHappenedModule()   // retire whatever is on screen
+```
+
+`showWhatJustHappenedModule()` surfaces the most recent recap regardless of how noteworthy the server rated it, so you can offer a "what did I miss?" affordance of your own. It still needs a recap at or behind the player's current position — it does nothing at the very start of a stream, or when the feed is empty.
+
+`dismissWhatJustHappenedModule()` retires the module from either phase. Reach for it when the module collides with UI you are about to present, or after you have moved focus back into your own controls. It is a no-op when nothing is showing, and it does **not** suppress future moments — the next one still pops.
+
 ### tvOS focus
 
 The module is focusable on tvOS. Keep it in its own focus section and make sure it isn't trapped behind a sibling that captures focus, or the pill won't be reachable. See [`INTEGRATION.md` §15.7](./INTEGRATION.md#157-tvos-focus).
 
-The pill takes focus when it surfaces, and pressing through to the expanded state moves focus onto **Explore More** so the primary action is one press away. Moving focus to the other CTA yourself pauses the auto-hide until you choose; the automatic landing on Explore More does not, so the bar still times out if it's ignored.
+The pill takes focus when it surfaces, and pressing through to the expanded state moves focus onto **Dismiss**. Moving focus to the other CTA yourself pauses the auto-hide until you choose; the automatic landing on Dismiss does not, so the bar still times out if it's ignored.
 
 While the module is **Expanded** it holds focus: directional presses stay on the pill and its two buttons rather than falling through to your player controls. The viewer leaves via **Dismiss**, **Explore More**, or the remote's Menu/Back button — all three hand focus straight back to your UI. The compact **Pill** state does not hold focus, so a viewer who ignores it can move away freely.
 
@@ -138,6 +151,8 @@ Host-facing entry points:
 | `MaestroPanel(width:)` | Hosts the WJH tab (and all other Fox panels) |
 | `MaestroEventDelegate.shouldShowPanel()` | Must present the panel; powers "Explore More" |
 | `MaestroEventDelegate.shouldShowWhatJustHappened(fact:)` | Per-moment gate — `.shownWithFocus` (default), `.shownWithoutFocus` (surface without taking focus), or `.hidden` (hold it for the next poll) |
+| `MaestroEventInterface.showWhatJustHappenedModule()` | Surfaces the latest recap on demand |
+| `MaestroEventInterface.dismissWhatJustHappenedModule()` | Retires the module from either phase |
 
 ---
 

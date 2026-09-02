@@ -99,7 +99,7 @@ Some surfaces add their own context — e.g. the Stats panel includes `game_stat
 // A specific key play clicked
 { "event_name": "keyplay_click", "key_play_type": "key_play_type", "key_play_id": "key_play_id", "sport_uri": "sport_event_uri", "description": "description", "entity_id": "listing_id" }
 
-// Expanding / collapsing a card
+// Expanding / collapsing a card — `card` is "statsMatchTimelineCard", "statsTeamStatsCard", or "statsLeagueScoresCard"
 { "action": "expand", "card": "card" }
 ```
 
