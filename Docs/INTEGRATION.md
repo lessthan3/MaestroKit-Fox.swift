@@ -149,6 +149,12 @@ final class FoxMaestroDelegate: MaestroEventDelegate {
         host?.handleKeyPlaySelection(event)
     }
 
+    func onPlayAllStarted(keyPlays: [KeyPlayClipInfo]) {
+        // Play the clips back to back in the order given, then call
+        // `endPlayAll()`. See §11, "Play All".
+        host?.playKeyPlaySequence(keyPlays)
+    }
+
     func onNewMultiview(event: NewMultiviewEvent) {
         // The SDK switched to a multiview layout. Update the player to the new event set.
         let listingIds = event.childListings.map(\.listingId)
@@ -505,6 +511,8 @@ restores it after.
   snapshots the current multiview for you.
 - When you report the clip has ended with `updateKeyPlayProgress(..., progress: nil)`
   (see §11), the SDK restores it.
+- Play All spans the whole sequence: the snapshot is taken when it starts and the
+  restore fires on `endPlayAll()` rather than between clips.
 
 **Manual calls (escape hatch).** Only if you present key plays through your **own**
 UI — bypassing the SDK's key-plays panel — is the auto-snapshot not taken, and you
@@ -589,6 +597,46 @@ Restore is a no-op if no snapshot was captured, so it is always safe to send.
 > The panel's on-screen progress bar is UI-only and may finish before a longer
 > host clip does.
 
+During a Play All sequence `nil` still means "this clip ended", but it no longer
+triggers the return to multiview — the whole sequence is one interlude, so the
+restore waits for `endPlayAll()`.
+
+### Play All
+
+The panel shows a **"Play from Start"** control above the list when the event
+supports it. It is remote-gated: it appears only when the SDK's Play All client
+setting is enabled for your client *and* the event has playable clips.
+
+Tapping it hands you the sequence:
+
+1. `onPlayAllStarted(keyPlays: [KeyPlayClipInfo])` fires with the **full ordered
+   clip list**. The order is already chronological (oldest first) — play them in
+   the order given, do not re-sort.
+2. Play each clip in turn, reporting progress with
+   `updateKeyPlayProgress(eventId:keyPlayId:progress:)` exactly as for a single
+   clip. The panel's control switches to a non-interactive **"Playing N of M"**
+   label, driven by whichever clip you are reporting progress for.
+3. When the sequence ends, call:
+
+   ```swift
+   interface.endPlayAll()
+   ```
+
+The SDK **freezes the key plays list** for the duration — polling continues, but
+the rendered list will not move under the user mid-sequence. `endPlayAll()` is
+the only signal that unfreezes it.
+
+> **Call `endPlayAll()` however the sequence ends** — finished, user skipped to a
+> different clip, player torn down, user left the panel. Drive it from your
+> playback teardown (a `defer`/`finally`), not just the happy path. Miss it and
+> the list stays frozen and the control stays stuck on "Playing N of M" for the
+> rest of the session. It is a no-op if no sequence is running, so an extra call
+> is harmless.
+
+The multiview snapshot is taken once when the sequence starts and restored on
+`endPlayAll()`, so the user lands back on the layout they left — the same
+contract as a single clip, spanning the whole sequence.
+
 ### Error / retry
 
 The SDK fetches and retries key plays itself against the endpoint configured via
@@ -648,7 +696,7 @@ func trackImpression(analytics: [String: String])  // fired when surfaces appear
 
 The dictionary keys are stable. Forward them verbatim to your analytics SDK (Segment, Adobe, etc.) — do not transform.
 
-For debugging the SDK itself (panel selection, overlay lifecycle, KMP state transitions, presenter startup), enable console logging with `await MaestroManager.shared.setConsoleLoggingEnabled(true)`. See **[LOGGING.md](LOGGING.md)**.
+For debugging the SDK itself (panel selection, overlay lifecycle, KMP state transitions, presenter startup), the SDK logs to the Xcode console in debug builds — nothing to enable. See **[LOGGING.md](LOGGING.md)**.
 
 ---
 
@@ -742,7 +790,7 @@ The kit registers Fox fonts inside `MaestroManager.init`. If your UI renders bef
 
 ### 15.11 Snapshot before clip, restore after
 
-If you skip `snapshotCurrentMultiview()` before navigating to a key-play clip, `restoreMultiviewIfNeeded()` does nothing. You will return the user to a single stream rather than the layout they came from. Always pair the two.
+Only applies if you present key plays through your **own** UI — the SDK's key-plays panel snapshots for you (§13). On that custom path, skipping `snapshotCurrentMultiview()` before navigating to a clip leaves `restoreMultiviewIfNeeded()` with nothing to restore, and the user lands on a single stream rather than the layout they came from. Always pair the two.
 
 ### 15.12 The `childListings` override
 
@@ -809,7 +857,7 @@ There is no `sportEventURI` field on `childListings` and the SDK does not resolv
 | A panel stays empty and the log shows "ignoring unusable URL" | The `baseUrl` / `url` passed isn't an absolute http(s) URL | Check the value reaching the setter — see §12, "URL handling". |
 | Fonts wrong | `MaestroManager.shared` never accessed at launch | Touch the singleton on app start. |
 | `setDataToPanel` returns `.unsupportedPanelIdentifier` | Wrong panel name | Use exactly `foxStats`, `foxKeyPlays`, `foxMultiview`. |
-| Restore-from-clip returns to single stream instead of layout | Missing `snapshotCurrentMultiview()` call | Snapshot before navigating away. |
+| Restore-from-clip returns to single stream instead of layout | Custom key-plays UI navigated away without `snapshotCurrentMultiview()` | Snapshot before navigating away — see §15.11. |
 | QA env unreachable | Defaults point to prod | Pass `overrideBaseUrl` for the QA host. |
 
 ---

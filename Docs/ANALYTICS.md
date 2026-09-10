@@ -99,6 +99,11 @@ Some surfaces add their own context — e.g. the Stats panel includes `game_stat
 // A specific key play clicked
 { "event_name": "keyplay_click", "key_play_type": "key_play_type", "key_play_id": "key_play_id", "sport_uri": "sport_event_uri", "description": "description", "entity_id": "listing_id" }
 
+// Key plays "Play from Start" sequence started / ended. Both fire from the SDK —
+// you don't report them; `play_all_completed` follows your `endPlayAll()` call.
+{ "event_name": "play_all_started", "entity_id": "listing_id", "clip_count": "clip_count" }
+{ "event_name": "play_all_completed", "entity_id": "listing_id" }
+
 // Expanding / collapsing a card — `card` is "statsMatchTimelineCard", "statsTeamStatsCard", or "statsLeagueScoresCard"
 { "action": "expand", "card": "card" }
 ```
@@ -131,11 +136,9 @@ If your downstream needs a friendlier event name, derive one alongside the paylo
 
 **Gating.** Analytics is enabled or disabled by Maestro's remote configuration for the site — there is no client flag for you to set. If you expect events and see none, confirm analytics is enabled for the site config and that an event is active. When disabled, your delegate simply isn't called.
 
-**Debugging.** Enable console logging during bring-up, or log the dictionaries directly in your delegate:
+**Debugging.** The SDK's own console logging is on in debug builds (see LOGGING.md), or log the dictionaries directly in your delegate:
 
 ```swift
-await MaestroManager.shared.setConsoleLoggingEnabled(true)   // see LOGGING.md
-
 func trackAction(analytics: [String: String]) {
     #if DEBUG
     print("[Maestro][action]", analytics)
@@ -169,6 +172,7 @@ final class FoxMaestroDelegate: MaestroEventDelegate {
     func shouldShowPanel() { /* present MaestroPanel */ }
     func shouldHidePanel() { /* dismiss MaestroPanel */ }
     func onKeyPlaySelected(event: KeyPlayClipInfo) {}
+    func onPlayAllStarted(keyPlays: [KeyPlayClipInfo]) {}
     func onNewMultiview(event: NewMultiviewEvent) {}
     func onKeyPlayListChanged(keyPlays: [KeyPlayClipInfo]) {}
     func onNewSingleStream(event: NewSingleStreamEvent) {}

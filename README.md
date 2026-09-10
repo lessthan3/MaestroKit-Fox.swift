@@ -31,6 +31,18 @@ targets: [
 Xcode resolves the package and downloads the prebuilt frameworks automatically —
 there's nothing else to link or embed.
 
+### Preview builds
+
+Prerelease versions (`1.2.0-beta.1` and the like) aren't picked up by `from:` —
+Swift Package Manager skips prerelease tags. To try one, point at the branch of
+the same name:
+
+```swift
+.package(url: "https://github.com/lessthan3/MaestroKit-Fox.swift", branch: "1.2.0-beta.1"),
+```
+
+Move back to `from:` once the final version ships.
+
 ## Quick start
 
 ```swift
