@@ -30,18 +30,18 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "MaestroKitFox",
-            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.11.0/MaestroKitFox.xcframework.zip",
-            checksum: "104720e37819cb34c1f1270a5d7217a6e4fbc24d83b20df44f05fe0f0b538939"
+            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.11.1/MaestroKitFox.xcframework.zip",
+            checksum: "53500c00feb62561b5cb3be5b366518a400a89f579c8589058af1cefb51acf9c"
         ),
         .binaryTarget(
             name: "MaestroCore",
-            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.11.0/MaestroCore.xcframework.zip",
-            checksum: "27226232f3faf8d8849b8143714cf4786c5447e6ae38f6d5d4fe4afdac5578fd"
+            url: "https://github.com/lessthan3/MaestroKit-Fox.swift/releases/download/1.11.1/MaestroCore.xcframework.zip",
+            checksum: "42976afb914406e727c483a24f7d8d9d34342da68a684284d6252ea071f0de67"
         ),
         .binaryTarget(
             name: "foxKit",
-            url: "https://github.com/lessthan3/MaestroKit.android/releases/download/foxKit-4.0.35.354/foxKit-4.0.35.354.zip",
-            checksum: "9b24318d5a6db7e6c846dd54d916e88497193dbc0454468254598634cf3fdd15"
+            url: "https://github.com/lessthan3/MaestroKit.android/releases/download/foxKit-4.0.35.360/foxKit-4.0.35.360.zip",
+            checksum: "420603c760b18716878959c5418d4bd3f33c6fc53234e5d9198cb96260de2200"
         ),
         // Internal link shim (source target): pulls the dynamic Sentry framework
         // into the product so MaestroCore's telemetry resolves at runtime. Its
