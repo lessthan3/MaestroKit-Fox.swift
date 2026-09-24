@@ -191,27 +191,62 @@ are ignored, so the paths never double-fire for the same event.
 
 ## 8. Handling taps / clicks
 
-When the user activates the overlay, your `onOverlayClicked` closure is invoked. This is
-where the host performs whatever the overlay is advertising — most commonly, opening a
-Maestro panel:
+When the user activates the overlay, two things happen:
+
+1. **If the overlay advertises a panel, the SDK selects it for you** and calls
+   `shouldShowPanel()` on your delegate. Present the panel there exactly as you do for any
+   other panel request — see
+   [Integration Guide § 7](INTEGRATION.md#7-presenting-the-maestro-panel).
+2. **Your `onOverlayClicked` closure runs**, for whatever else the host wants to do on a
+   tap — analytics, pausing the player, dimming chrome.
 
 ```swift
 MaestroOverlay(
     event: event,
     onOverlayClicked: {
-        // Example: route the user into the Multiview panel. `interface` is the
-        // MaestroEventInterface you captured from `userDidStartWatchingEvents`.
+        analytics.track("maestro_overlay_tapped")
+    }
+)
+```
+
+> **Presenting the panel is still the host's job.** The SDK only selects the tab and asks
+> via `shouldShowPanel()`; nothing appears until you present it.
+
+### Routing it yourself
+
+An overlay that advertises no panel routes nowhere — the tap still reaches
+`onOverlayClicked` and nothing else happens. Drive the navigation yourself there with
+`didShowPanel(panelTypeId:)` on the `MaestroEventInterface` you captured from
+`userDidStartWatchingEvents`:
+
+```swift
+MaestroOverlay(
+    event: event,
+    onOverlayClicked: {
+        // Selects the Multiview tab in the SDK; present the panel as you normally do.
         host.maestroInterface?.didShowPanel(panelTypeId: .multiview)
         analytics.track("maestro_overlay_tapped")
     }
 )
 ```
 
-> **Navigation is the host's job.** The overlay view does not auto-route to a panel on
-> tap — it surfaces the tap to you via `onOverlayClicked`, and you decide what happens.
-> `didShowPanel(panelTypeId:)` on the `MaestroEventInterface` both selects the requested
-> tab in the SDK and triggers `shouldShowPanel()` on your delegate so you can present the
-> panel — see [Integration Guide § 7](INTEGRATION.md#7-presenting-the-maestro-panel).
+Use this for overlays you know carry no CTA, or to override where one points. Calling it
+for an overlay that *does* advertise a panel will fight the SDK's own selection — the last
+call wins — so don't hard-code a panel on a tap handler that sees both kinds.
+
+### How the target panel is resolved
+
+First match wins:
+
+1. the panel **type** carried on the overlay's CTA (`foxStats`, `foxMultiView`, …);
+2. the CTA's **`panelType`** — the panel type it was authored against;
+3. the overlay's own **`targetPanel`**;
+4. failing all of those, a Multiview overlay routes to the Multiview panel.
+
+Whichever id wins is matched **case-insensitively** against the panels enabled for the
+page — by panel type id, API panel id, or config document id — so a CTA authored against
+any of those spellings opens the right panel. An id that matches no enabled panel selects
+nothing; enable the panel for the platform, or point the CTA at one that is enabled.
 
 ---
 
@@ -307,6 +342,7 @@ first — your `shouldHideOverlay` fires one last time. See
 | Overlay never appears | Render step missing | Mount `MaestroOverlay(event:)` from your stored `currentOverlay` (§ 4). |
 | `shouldShowOverlay` never called | Delegate deallocated (held weakly) | Retain the delegate on a long-lived owner. |
 | Overlay appears but tap does nothing | `onOverlayClicked` not provided, or focus trapped (tvOS) | Pass `onOverlayClicked`; ensure no sibling traps focus. |
+| Tap doesn't open the advertised panel | The CTA's panel isn't enabled for the page/platform, or the overlay carries no panel at all | Check the panel is enabled in your Maestro config (§ 8); `shouldShowPanel()` only fires once a panel resolves. |
 | Overlay won't re-trigger in QA | Same `id` (deduped) or one-time gate already set | Vary the id, or call `resetMultiviewOverlay()`. |
 | Overlay dismisses too fast/slow | Default follows the Rive animation length | Pass an explicit `dismissTimeoutSeconds` to force a fixed duration — server value isn't honored (§ 12.3). |
 | Placeholder overlay keeps showing | `showHelloWorld: true` left on | Set it to `false` for non-QA builds. |

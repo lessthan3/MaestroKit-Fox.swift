@@ -296,6 +296,11 @@ struct PlayerScreen: View {
 
 Skipping the confirmation steps causes the SDK's internal "panel is visible" state to drift; overlay timing depends on it.
 
+Step 1 isn't only a tab-bar interaction: tapping an overlay that advertises a panel
+enters this contract at step 1 too, so your `shouldShowPanel()` must be able to present
+the panel from anywhere in the session — see
+[OVERLAYS.md § 8](OVERLAYS.md#8-handling-taps--clicks).
+
 ### Collapsing header — sticky panel (iOS / iPad)
 
 For a portrait layout where the video stays fixed and the panel scrolls beneath it, use the `collapsingHeader` initializer. The panel hosts itself in a single scroll: your header scrolls away, the tab bar pins to the top, and the selected tab's content flows in the same scroll — one continuous gesture.
