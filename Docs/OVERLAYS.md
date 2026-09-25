@@ -236,17 +236,18 @@ call wins — so don't hard-code a panel on a tap handler that sees both kinds.
 
 ### How the target panel is resolved
 
-First match wins:
+An overlay advertises a single destination: its **`targetPanel`**. A `show_panel` CTA
+supplies it — the CTA's **`panelType`** when present, otherwise its **`panelId`**, with
+blank values skipped — and a producer can also set it on the overlay directly.
 
-1. the panel **type** carried on the overlay's CTA (`foxStats`, `foxMultiView`, …);
-2. the CTA's **`panelType`** — the panel type it was authored against;
-3. the overlay's own **`targetPanel`**;
-4. failing all of those, a Multiview overlay routes to the Multiview panel.
-
-Whichever id wins is matched **case-insensitively** against the panels enabled for the
-page — by panel type id, API panel id, or config document id — so a CTA authored against
-any of those spellings opens the right panel. An id that matches no enabled panel selects
+That id is matched **case-insensitively** against the panels enabled for the page — by
+panel type id, API panel id, or config document id — so a CTA authored against any of
+those spellings opens the right panel. An id that matches no enabled panel selects
 nothing; enable the panel for the platform, or point the CTA at one that is enabled.
+
+A Multiview overlay carries a target like any other — being a Multiview overlay is not
+by itself a routing instruction. An overlay with no `targetPanel` routes nowhere; see
+*Routing it yourself* above.
 
 ---
 
