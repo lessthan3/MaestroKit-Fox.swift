@@ -176,8 +176,26 @@ final class FoxMaestroDelegate: MaestroEventDelegate {
         // Fires when a panel API responds 401. Use it to refresh tokens and re-apply overrides.
         host?.handlePanelAuthFailure(event)
     }
+
+    func onTopicSelected(selection: TopicChapterInfo) {
+        // The viewer picked a chapter in the Topics panel. Seek to
+        // `selection.startTime` (ISO-8601, as the feed sent it) and report the
+        // chapter's progress back with `updateTopicProgress(...)`. See §6.
+        host?.seekToTopic(selection)
+    }
+
+    // Optional — the default does nothing. Every playable chapter across the
+    // current listings, re-sent only when that set changes.
+    func onTopicListChanged(topics: [TopicChapterInfo]) {
+        host?.topics = topics
+    }
 }
 ```
+
+> **Not every event can seek to every chapter.** Some carry limited rewind rights —
+> roughly 15 minutes back from the live edge — until the viewer saves the show to
+> My Stuff, which starts its DVR. If your seek can fail for that reason, check
+> before you seek rather than after; the panel has no way to know your rights.
 
 ### Critical lifecycle rule
 
@@ -243,6 +261,12 @@ interface.didHidePanel()       // confirm `shouldHidePanel()`
 // (see §10 and §11):
 interface.updateKeyPlayProgress(eventId: event.listingId, keyPlayId: event.keyPlayId, progress: 0.42)
 interface.updateKeyPlayProgress(eventId: event.listingId, keyPlayId: event.keyPlayId, progress: nil)
+
+// Topics chapter playback (drives the chapter card's progress bar). Id-based —
+// use the listingId + chapterId from the `onTopicSelected` selection. Report
+// `progress: nil` when the chapter ends:
+interface.updateTopicProgress(listingId: selection.listingId, chapterId: selection.chapterId, progress: 0.42)
+interface.updateTopicProgress(listingId: selection.listingId, chapterId: selection.chapterId, progress: nil)
 
 // Replace the event-id set (multiview transitions, manual switches, etc.):
 interface.updateEventData(eventIDs: ["evt-new-listing"])
@@ -579,6 +603,12 @@ playback with `updateKeyPlayProgress(eventId:keyPlayId:progress:)`. There is no
        progress: fraction   // 0.0 … 1.0
    )
    ```
+
+   Report on a steady cadence. The SDK animates the bar between your updates,
+   pacing each step to the interval it measures between reports — so roughly
+   1–10 updates per second renders smoothly and there is no need to drive it at
+   display rate. Regularity matters more than frequency: a very uneven stream
+   leaves the bar trailing slightly behind the clip.
 6. When the clip **finishes** (or your player tears it down), send `progress: nil`:
 
    ```swift
@@ -714,7 +744,7 @@ For debugging the SDK itself (panel selection, overlay lifecycle, KMP state tran
 | `MaestroOverlay` | SwiftUI view that renders a `MaestroOverlayEvent`. |
 | `MaestroPanelType` | `.stats` / `.keyPlays` / `.multiview` — backed by `foxStats`, `foxKeyPlays`, `foxMultiview`. |
 | `MaestroOverlayEvent` | Overlay payload passed to `shouldShowOverlay`. Public surface: `id`, `size`. |
-| `MaestroEventDelegate` | Protocol your app implements (Fox extension — adds `onKeyPlaySelected`, `onNewMultiview`, `onKeyPlayListChanged`, `onNewSingleStream`, `onPanelEvent`). |
+| `MaestroEventDelegate` | Protocol your app implements (Fox extension — adds `onKeyPlaySelected`, `onNewMultiview`, `onKeyPlayListChanged`, `onNewSingleStream`, `onPanelEvent`, `onTopicSelected`, `onTopicListChanged`). |
 | `MaestroEventInterface` | Protocol the SDK returns from `userDidStartWatchingEvents`. Your one-way push channel. |
 | `MaestroPanelOverride` | Struct for generic overrides. |
 | `MaestroPanelOverrideError` | Error cases returned by `setDataToPanel`. |
@@ -723,6 +753,7 @@ For debugging the SDK itself (panel selection, overlay lifecycle, KMP state tran
 | `FoxKeyPlaysPanelOverrideInterfaces` | Enum of override interface names for key plays. |
 | `KeyPlayClipInfo` | Clip metadata delivered by `onKeyPlaySelected` / `onKeyPlayListChanged`. Key fields: `listingId`, `keyPlayId` — pass these to `updateKeyPlayProgress`. |
 | `KeyPlayProgress` | Progress payload sent to KMP by `updateKeyPlayProgress(eventId:keyPlayId:progress:)`: `listingId`, `keyPlayId`, `progress`. |
+| `TopicChapterInfo` | A topic chapter and the span to seek to, delivered by `onTopicSelected` / `onTopicListChanged`. Fields: `listingId`, `chapterId`, `startTime`, `endTime` (ISO-8601 strings). Pass `listingId` + `chapterId` to `updateTopicProgress`. Replaces `TopicSelection`, which is deprecated and now an alias for this type. |
 | `NewMultiviewEvent` | Multiview switch payload. |
 | `NewSingleStreamEvent` | Single-stream switch payload. |
 | `PanelEvent` | Lifecycle event delivered to `onPanelEvent`. Fires today on 401-Unauthorized API responses. |
