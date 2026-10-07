@@ -11,6 +11,7 @@ TL;DR — MaestroKitFox doesn't own your analytics pipeline. It hands every acti
 1. [Integration point](#1-integration-point)
 2. [What you'll receive](#2-what-youll-receive)
    - [2.1 Payload schema (key reference)](#21-payload-schema-key-reference)
+   - [2.2 Building your own interaction events](#22-building-your-own-interaction-events)
 3. [Forward the payload verbatim](#3-forward-the-payload-verbatim)
 4. [Enabling & debugging](#4-enabling--debugging)
 5. [Minimal end-to-end example](#5-minimal-end-to-end-example)
@@ -110,6 +111,77 @@ Some surfaces add their own context — e.g. the Stats panel includes `game_stat
 
 The exact field set varies by surface and evolves over time — treat any field as optional and don't hard-code on its presence.
 
+### 2.2 Building your own interaction events
+
+If you also report panel interactions through your own events (for example, Fox's Component Interaction), MaestroKitFox gives you the context through the event delegate. You don't need to read anything from the analytics dictionary.
+
+**Key play cards.** `KeyPlayClipInfo`, delivered to `onKeyPlaySelected`, `onPlayAllStarted` and `onKeyPlayListChanged`, includes:
+
+| Field | Meaning |
+|---|---|
+| `keyPlayType` | The key play's type as sent by the feed, or `nil` if it doesn't send one. |
+| `hasImpactTreatment` | `true` when the card shows the chance-to-win shift. |
+
+```swift
+func onKeyPlaySelected(event: KeyPlayClipInfo) {
+    let type = event.keyPlayType ?? ""
+    let componentText = event.hasImpactTreatment ? "\(type):impact_treatment" : type
+    // ...
+}
+```
+
+Every clip in `onPlayAllStarted` and `onKeyPlayListChanged` carries the same two fields, so you can tag clips your own player starts:
+
+| Interaction | Where to hook it |
+|---|---|
+| A key play card is selected | `onKeyPlaySelected(event:)` |
+| "Play from Start" is pressed | `onPlayAllStarted(keyPlays:)`, which fires once on the press |
+| Each clip played by "Play from Start" | Your player, as it moves through the `onPlayAllStarted` list |
+| "Join Live" / "Next Key Play" is pressed | Your own buttons. The SDK isn't involved. |
+| The clip "Next Key Play" moves to | Your player, picking it from the latest `onKeyPlayListChanged` list |
+
+These fields aren't added to the `trackAction` / `trackImpression` dictionaries. Read them from the delegate callbacks above.
+
+**Panel CTAs and cards.** `onPanelEvent(event:)` delivers these interaction events:
+
+| Event | Fields | Fires when |
+|---|---|---|
+| `CtaSelected` | `cta: FoxCta`, `listingId: String?` | The user presses a panel CTA. `FoxCta` is `.seeAllKeyPlays`, `.seeAllStats`, `.seeAllTopics` or `.back`. |
+| `CardToggled` | `card: FoxCard`, `expanded: Bool`, `cardTitle: String?`, `listingId: String?` | The user expands or collapses a stats card. Fires for `.matchTimeline`, `.leagueScores` and `.scoringDrives`. `expanded` is the card's new state. |
+| `CardImpression` | `card: FoxCard`, `cardTitle: String?`, `listingId: String?` | At least half of a stats card scrolled into view. Fires once per card and match until the Stats panel leaves the screen (panel hidden or another tab selected), then again on return. |
+| `CardFocused` | `card: FoxCard`, `cardTitle: String?`, `cardIndex: Int32`, `listingId: String?` | **Apple TV only.** Focus stayed on a stats card for 300 ms, so cards scrolled past aren't reported. `cardIndex` is its position in the list as shown, 0 being the top. |
+| `ScoringDrivesTeamSelected` | `teamIndex: Int32`, `cardTitle: String?`, `listingId: String?` | The user switched team on the Scoring Drives card: 0 is the left team, 1 the right. |
+| `ScoringDriveFocused` | `teamIndex: Int32`, `driveIndex: Int32`, `cardTitle: String?`, `listingId: String?` | **Apple TV only.** Focus moved to a drive on the Scoring Drives card. `driveIndex` is its position in the list, 0 being the most recent drive. |
+
+`FoxCta` identifies the CTA itself, not the label the panel shows, so map it to your own text. `listingId` is the match the CTA or card belongs to. `CtaSelected` comes only from multi-event panels: leaving a single-event panel is your own navigation, so it sends nothing.
+
+`FoxCard` names every stats card: `.matchSummary` (a match's tile in the multi-match list), `.gameInfo` (that match's card in its detail), `.matchTimeline`, `.teamStats`, `.redZone`, `.scoringDrives`, `.leagueScores`, `.expectedGoals`, `.momentum` and `.goalMatrix`. `cardTitle` is the card's title from the stats feed, and `nil` for `.matchSummary` and `.gameInfo`, which have none.
+
+```swift
+func onPanelEvent(event: any PanelEvent) {
+    switch event {
+    case let cta as CtaSelected:
+        let text = switch cta.cta {
+        case .seeAllKeyPlays: "See All Key Plays"
+        case .seeAllStats: "See All Stats"
+        case .seeAllTopics: "See All Topics"
+        case .back: "Back"
+        }
+        trackComponentInteraction(text: text, entityId: cta.listingId)
+    case let toggle as CardToggled:
+        trackCardToggle(toggle.card, expanded: toggle.expanded, entityId: toggle.listingId)
+    case let impression as CardImpression:
+        trackComponentImpression(text: impression.cardTitle, entityId: impression.listingId)
+    case let error as PanelResponseError where error.code == 401:
+        refreshTokenAndReapply()   // Keep your existing handling; see INTEGRATION.md §15.5.
+    default:
+        break   // Also catches `PanelResponseError` codes other than 401; none are sent today.
+    }
+}
+```
+
+These events share `onPanelEvent` with token-expiry (`PanelResponseError`) and expired-listing events. Add the cases above to your existing handler; don't replace it.
+
 ---
 
 ## 3. Forward the payload verbatim
@@ -205,6 +277,8 @@ Register it as usual (`MaestroManager.shared.delegate = …` before starting the
 - [ ] The delegate is registered before the event starts and is strongly retained.
 - [ ] Interacting with a panel (e.g. selecting a multiview layout) triggers `trackAction`; opening a surface triggers `trackImpression`.
 - [ ] With analytics disabled in the site config, no events arrive.
+- [ ] If you build your own Stats events: each card fires `CardImpression` once as it scrolls into view, and again after you leave the Stats panel and come back. On Apple TV, resting on a card fires `CardFocused`.
+- [ ] If you build your own interaction events: pressing "See all" or back fires `CtaSelected`, expanding a Match Timeline, League Scores or Scoring Drives card fires `CardToggled`, and key play selections carry `keyPlayType` / `hasImpactTreatment`.
 
 ---
 **Owner:** Maestro Apple Team

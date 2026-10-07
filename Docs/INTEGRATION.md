@@ -173,8 +173,17 @@ final class FoxMaestroDelegate: MaestroEventDelegate {
     }
 
     func onPanelEvent(event: any PanelEvent) {
-        // Fires when a panel API responds 401. Use it to refresh tokens and re-apply overrides.
-        host?.handlePanelAuthFailure(event)
+        // Several event types arrive here — always switch on the type. See §15.5 and ANALYTICS.md §2.2.
+        switch event {
+        case let error as PanelResponseError where error.code == 401:
+            host?.handlePanelAuthFailure(error)
+        case let expired as RemainingChildrenOnExpiredListing where !expired.remainingListings.isEmpty:
+            // Every child expired → empty list; never pass [] (see §15.6).
+            host?.maestroInterface?.updateEventData(eventIDs: expired.remainingListings)
+        default:
+            break // Interaction events (`CtaSelected`, `CardToggled`, …) are optional. Also catches
+                  // `PanelResponseError` codes other than 401; none are sent today.
+        }
     }
 }
 ```
@@ -579,6 +588,12 @@ playback with `updateKeyPlayProgress(eventId:keyPlayId:progress:)`. There is no
        progress: fraction   // 0.0 … 1.0
    )
    ```
+
+   Report on a steady cadence. The SDK animates the bar between your updates,
+   pacing each step to the interval it measures between reports — so roughly
+   1–10 updates per second renders smoothly and there is no need to drive it at
+   display rate. Regularity matters more than frequency: a very uneven stream
+   leaves the bar trailing slightly behind the clip.
 6. When the clip **finishes** (or your player tears it down), send `progress: nil`:
 
    ```swift
@@ -721,11 +736,11 @@ For debugging the SDK itself (panel selection, overlay lifecycle, KMP state tran
 | `MaestroWorkingEnvironment` | `.test` / `.qa` / `.prod`. |
 | `FoxMultiviewPanelOverrideInterfaces` | Enum of override interface names for multiview. |
 | `FoxKeyPlaysPanelOverrideInterfaces` | Enum of override interface names for key plays. |
-| `KeyPlayClipInfo` | Clip metadata delivered by `onKeyPlaySelected` / `onKeyPlayListChanged`. Key fields: `listingId`, `keyPlayId` — pass these to `updateKeyPlayProgress`. |
+| `KeyPlayClipInfo` | Clip metadata delivered by `onKeyPlaySelected` / `onKeyPlayListChanged`. Key fields: `listingId`, `keyPlayId` — pass these to `updateKeyPlayProgress`. Also carries `keyPlayType` and `hasImpactTreatment` for your own analytics (see [`ANALYTICS.md` §2.2](./ANALYTICS.md#22-building-your-own-interaction-events)). |
 | `KeyPlayProgress` | Progress payload sent to KMP by `updateKeyPlayProgress(eventId:keyPlayId:progress:)`: `listingId`, `keyPlayId`, `progress`. |
 | `NewMultiviewEvent` | Multiview switch payload. |
 | `NewSingleStreamEvent` | Single-stream switch payload. |
-| `PanelEvent` | Lifecycle event delivered to `onPanelEvent`. Fires today on 401-Unauthorized API responses. |
+| `PanelEvent` | Lifecycle event delivered to `onPanelEvent`. Fires on panel API errors (`PanelResponseError`, `code` 401 when the token expired), expired multiview listings (`RemainingChildrenOnExpiredListing`), panel CTA presses (`CtaSelected`) and stats card engagement (`CardToggled`, `CardImpression`, `CardFocused`, scoring-drive events). See ANALYTICS.md §2.2. |
 
 ---
 
@@ -759,17 +774,18 @@ If `configure` has not been awaited, `userDidStartWatchingEvents` returns a no-o
 
 ### 15.5 401 Unauthorized from a panel API
 
-The SDK does **not** retry on its own. It fires `onPanelEvent(event:)` on your delegate. Implement a token-refresh + re-apply pattern:
+The SDK does **not** retry on its own. It fires `onPanelEvent(event:)` on your delegate with a `PanelResponseError` whose `code` is `401`. Add a case for it to the `switch` in your `onPanelEvent` (see §4). Other event types arrive on the same callback, so don't replace your existing handling:
 
 ```swift
-func onPanelEvent(event: any PanelEvent) {
+case let error as PanelResponseError where error.code == 401:
     Task {
         let freshToken = try await auth.refresh()
         await MaestroManager.shared.setMultiViewAPIConfig(token: freshToken)
         // Re-apply other panels too if they share the token.
     }
-}
 ```
+
+The SDK sends one event per expired-token cycle and gives up after 3 cycles in a row.
 
 ### 15.6 Empty event IDs
 
