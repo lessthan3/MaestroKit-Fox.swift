@@ -310,6 +310,17 @@ enters this contract at step 1 too, so your `shouldShowPanel()` must be able to 
 the panel from anywhere in the session — see
 [OVERLAYS.md § 8](OVERLAYS.md#8-handling-taps--clicks).
 
+### Close tab (iOS / iPad landscape)
+
+In landscape on iPhone and iPad, `MaestroPanel` shows a small chevron tab that hangs **outside** its leading edge, just above the tab bar. Tapping it calls `shouldHidePanel()` on your delegate. Swiping the tab to the right does the same thing. Handle both like any other step-4 request in the contract above.
+
+The tab doesn't take up any layout space. The panel's frame is still exactly the width you pass, so your player can sit flush against the panel or keep whatever spacing you already use. The tab draws over the player's trailing edge.
+
+- **Don't clip the panel.** `.clipped()`, `.clipShape(…)`, or a container that clips its children (for example a `UIHostingController` view sized to the panel) will cut the tab off or block taps on it. Apply the clip to your player instead, or give the panel's container at least 44 pt of room on its leading side.
+- Portrait layouts and tvOS show no tab. On tvOS, Menu closes the panel.
+
+On iPhone in landscape, the panel adds its own content padding: 16 pt on the leading side and 34 pt on the trailing side. Its `#141414` background still fills the whole frame. Don't add your own padding around the panel. Let it run to the top, trailing, and bottom edges of the screen (`.ignoresSafeArea(.container, edges: [.top, .trailing, .bottom])`), and keep in mind that the `width` you pass includes the padding.
+
 ### Collapsing header — sticky panel (iOS / iPad)
 
 For a portrait layout where the video stays fixed and the panel scrolls beneath it, use the `collapsingHeader` initializer. The panel hosts itself in a single scroll: your header scrolls away, the tab bar pins to the top, and the selected tab's content flows in the same scroll — one continuous gesture.
