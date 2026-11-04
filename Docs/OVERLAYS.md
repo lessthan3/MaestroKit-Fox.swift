@@ -112,21 +112,19 @@ struct PlayerScreen: View {
 
     var body: some View {
         VideoPlayerLayer()
-            // Draw SDK-pushed overlays anchored to a corner of the player.
-            .overlay(alignment: .bottomTrailing) {
+            // Give SDK-pushed overlays the full player area; the overlay places itself.
+            .overlay {
                 if let event = host.currentOverlay {
                     MaestroOverlay(event: event)
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 20)
                 }
             }
     }
 }
 ```
 
-`MaestroOverlay` resolves and plays the correct animation for the event, runs the
-auto-dismiss timer, and reports the lifecycle back into the SDK for you. You only supply
-the event and decide where it sits.
+`MaestroOverlay` resolves and plays the correct animation for the event, positions it,
+runs the auto-dismiss timer, and reports the lifecycle back into the SDK for you. You only
+supply the event and the area it may draw in.
 
 ---
 
@@ -144,7 +142,7 @@ MaestroOverlay(
 | Parameter | Default | Purpose |
 |---|---|---|
 | `event` | — | The `MaestroOverlayEvent` delivered to `shouldShowOverlay(event:)`. |
-| `dismissTimeoutSeconds` | `nil` | How long the overlay stays up before auto-dismissing. When `nil` (the default), the overlay auto-sizes to the Rive animation — it dismisses when the animation finishes / the state machine settles, or after the animation's own play-through duration, whichever comes first. Pass a value only to force a fixed duration. |
+| `dismissTimeoutSeconds` | `nil` | Fixed duration to force, overriding everything else. When `nil` (the default), the overlay dismisses on the Rive animation's own `eventDone` event; if that never arrives, it falls back to the event's server-supplied duration, and finally to 8s. |
 | `onOverlayClicked` | `nil` | Called when the user taps / selects the overlay. Put navigation, deep-linking, and analytics here. |
 | `onOverlayFinished` | `nil` | Called after the overlay finishes — by timeout, by the animation finishing, **or** by a tap. Use it to clean up any local state you keep alongside `currentOverlay`. |
 | `maestroManager` | `.shared` | Leave as the default; override only for isolated testing. |
@@ -162,7 +160,6 @@ The event is intentionally **opaque**. Only two members are public:
 | Member | Type | Notes |
 |---|---|---|
 | `id` | `String` | Stable identifier. Overlays are de-duplicated by this — see § 12. |
-| `size` | `CGSize` | Suggested render size in points. |
 
 You never construct a `MaestroOverlayEvent` yourself — you only receive one from
 `shouldShowOverlay(event:)` and pass it straight back into `MaestroOverlay(event:)`.
@@ -177,9 +174,9 @@ and handled by the view.
 2. It stays up until the first of these happens:
    - the user taps it;
    - **if `dismissTimeoutSeconds` was set** — that timeout elapses;
-   - **otherwise (default)** — the Rive animation finishes / the state machine settles, or
-     the animation's measured play-through duration elapses. A 12s safety net covers looping
-     content that never settles and files that expose no readable duration.
+   - **otherwise (default)** — the Rive file emits its `eventDone` event. If it never does
+     (a looping state machine, or a file that doesn't expose the event), a fallback timer
+     covers it: the event's own server-supplied duration, or 8s when it carries none.
 3. On tap: `onOverlayClicked` runs, then the overlay begins dismissing.
 4. On dismiss (any path): the overlay fades out, `onOverlayFinished` runs, and the SDK
    calls `shouldHideOverlay()` on your delegate so you can clear `currentOverlay`.
@@ -253,11 +250,18 @@ by itself a routing instruction. An overlay with no `targetPanel` routes nowhere
 
 ## 9. Placement and sizing
 
-- Anchor the overlay to a corner of the player with `.overlay(alignment:)` and add
-  padding so it clears safe areas and player chrome. The reference integration uses
-  `.bottomTrailing` with 20pt insets.
-- `MaestroOverlay` sizes itself from the event and its animation; you don't need to set an
-  explicit frame. `event.size` is available if you want to reserve layout space.
+- The SDK owns placement. `MaestroOverlay` fills the area you mount it in and anchors the
+  animation to the position configured for the overlay in Maestro (top/center/bottom ×
+  left/center/right), with a 20pt inset from the edges. Overlays with no position anchor
+  bottom-right.
+- Mount it with a plain `.overlay { … }` over the player. Don't add your own
+  `.overlay(alignment:)` or padding — alignment has no effect, and padding stacks on top
+  of the SDK's inset.
+- Only the animation itself takes taps; the rest of the area passes touches through to
+  the player controls underneath.
+- The animation keeps its Rive artboard's aspect ratio; you don't need to set a frame.
+  Width is capped at a fraction of the area — 60% on iPhone, 40% on iPad — and is
+  uncapped on tvOS, where the artboard's authored size is used as-is.
 - Keep the overlay above your player layer but below any modal/sheet UI so it doesn't
   fight focus or touch handling with full-screen presentations.
 
@@ -269,6 +273,20 @@ On tvOS, `MaestroOverlay` makes itself focusable and **auto-focuses shortly afte
 appears** so the Siri remote select button triggers `onOverlayClicked`. Make sure a
 sibling view isn't trapping focus, or the user won't be able to move to/from the overlay.
 Wrap the rest of your screen in its own focus section if needed.
+
+### Where focus goes after a CTA
+
+When the viewer selects an overlay whose CTA opens a panel, the SDK moves focus onto
+that panel's tab — before the overlay leaves the screen. This holds whether
+`MaestroPanel` was already on screen or your delegate is opening it in response to
+`shouldShowPanel()`, and whether the CTA switches tabs or names the tab already
+showing. You don't need to manage focus yourself.
+
+Overlays that end **without** a CTA (the animation finishes, the dismiss timeout
+elapses, or the viewer presses Back) release focus with nowhere specific to send it,
+and tvOS then picks the next focusable itself — typically the first control in your
+player chrome. If you need focus to return somewhere precise in that case, capture it
+before the overlay appears and restore it from `onOverlayFinished`.
 
 ---
 
@@ -311,15 +329,18 @@ Two overlay events with the **same** `id` will not re-fire `shouldShowOverlay` �
 is treated as a redundant update and dropped. If you need to force a refresh during testing,
 the id has to change.
 
-### 12.3 The dismiss timing is driven Swift-side
-By default (`dismissTimeoutSeconds: nil`) the overlay stays up for the Rive animation's own
-length — it dismisses when the animation finishes / the state machine settles, or after the
-animation's measured play-through duration, backstopped by a 12s fallback. A state machine
-has no single duration, so the duration is read from the linear animations on the artboard;
-a looping state machine never settles and relies on the fallback. Passing an explicit
-`dismissTimeoutSeconds` overrides all of this with a fixed duration. A *server-supplied*
-duration on the event is **not** honored — timing comes from the animation or the value you
-pass, never a back-end field.
+### 12.3 How the dismiss timing resolves
+The overlay's primary dismissal is the Rive file's own `eventDone` event — the animation
+signals when it's done, so authored length changes need no SDK change.
+
+Everything else is a fallback, in this order:
+
+1. `dismissTimeoutSeconds`, if you passed one — a fixed duration that wins outright.
+2. The event's server-supplied duration, when it carries one.
+3. 8 seconds.
+
+A looping state machine, or a file that exposes no `eventDone`, never fires the primary
+path and always lands on the fallback.
 
 ### 12.4 Delegate methods are `async` and main-actor
 Both `shouldShowOverlay` and `shouldHideOverlay` are `async @MainActor`. Update your UI
@@ -341,11 +362,14 @@ first — your `shouldHideOverlay` fires one last time. See
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Overlay never appears | Render step missing | Mount `MaestroOverlay(event:)` from your stored `currentOverlay` (§ 4). |
+| `shouldShowOverlay` fires but nothing draws | The overlay's Rive file URL in Maestro is missing or invalid | Fix the overlay's Rive file in Maestro. The SDK skips art it can't load rather than crash; the overlay still dismisses on its fallback timer. |
+| Overlay in the wrong corner, or too far from the edge | Host-side `.overlay(alignment:)` or padding | Mount with a plain `.overlay { … }` and set the position on the overlay in Maestro (§ 9). |
 | `shouldShowOverlay` never called | Delegate deallocated (held weakly) | Retain the delegate on a long-lived owner. |
 | Overlay appears but tap does nothing | `onOverlayClicked` not provided, or focus trapped (tvOS) | Pass `onOverlayClicked`; ensure no sibling traps focus. |
 | Tap doesn't open the advertised panel | The CTA's panel isn't enabled for the page/platform, or the overlay carries no panel at all | Check the panel is enabled in your Maestro config (§ 8); `shouldShowPanel()` only fires once a panel resolves. |
+| CTA opens the panel but focus jumps to your player chrome (tvOS) | The CTA names a panel that isn't enabled for the page, so no tab ever resolves to take focus | Check the panel is enabled in your Maestro config (§ 8); focus follows a route only once it lands (§ 10). |
 | Overlay won't re-trigger in QA | Same `id` (deduped) or one-time gate already set | Vary the id, or call `resetMultiviewOverlay()`. |
-| Overlay dismisses too fast/slow | Default follows the Rive animation length | Pass an explicit `dismissTimeoutSeconds` to force a fixed duration — server value isn't honored (§ 12.3). |
+| Overlay dismisses too fast/slow | Default follows the file's `eventDone` event, then the server duration, then 8s | Pass an explicit `dismissTimeoutSeconds` to force a fixed duration (§ 12.3). |
 | Placeholder overlay keeps showing | `showHelloWorld: true` left on | Set it to `false` for non-QA builds. |
 
 ---
@@ -391,7 +415,7 @@ struct PlayerScreen: View {
 
     var body: some View {
         VideoPlayerLayer()
-            .overlay(alignment: .bottomTrailing) {
+            .overlay {
                 if let event = host.currentOverlay {
                     MaestroOverlay(
                         event: event,
@@ -400,8 +424,6 @@ struct PlayerScreen: View {
                             host.maestroInterface?.didShowPanel(panelTypeId: .multiview)
                         }
                     )
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 20)
                 }
             }
             .task { await host.start() }

@@ -55,7 +55,7 @@ That single import is all you need — every public type referenced in this guid
 
 ### Fonts
 
-MaestroKitFox's UI renders in the Fox brand fonts (`FOXONEAero*`, `FOXONEAeroCnd*`, `VenuAero*`), referenced by **PostScript name** (e.g. `FOXONEAero-400-Regular`, `VenuAero-Bold`). The SDK does **not** bundle or register these fonts — **your app must ship and register them** so they are available process-wide, via the standard `UIAppFonts` `Info.plist` entry or your own `CTFontManager` registration at launch. A Fox app already registers its brand fonts, so typically there is nothing new to add — just confirm the PostScript names match the list above. Any face that isn't registered falls back to the system font.
+MaestroKitFox's UI renders in the Fox brand fonts (`FoxSans*`, `FOXONEAero*`, `FOXONEAeroCnd*`, `VenuAero*`), referenced by **PostScript name** (e.g. `FoxSans-Regular`, `FOXONEAero-400-Regular`, `VenuAero-Bold`). Regular, Medium and Bold text uses Fox Sans (`FoxSans-Regular`, `FoxSans-Medium`, `FoxSans-Bold`) when your app registers it, and falls back to the matching `FOXONEAero` weight when it doesn't. The SDK does **not** bundle or register these fonts — **your app must ship and register them** so they are available process-wide, via the standard `UIAppFonts` `Info.plist` entry or your own `CTFontManager` registration at launch. A Fox app already registers its brand fonts, so typically there is nothing new to add — just confirm the PostScript names match the list above. Any face that isn't registered falls back to the system font.
 
 ---
 
@@ -180,13 +180,34 @@ final class FoxMaestroDelegate: MaestroEventDelegate {
         case let expired as RemainingChildrenOnExpiredListing where !expired.remainingListings.isEmpty:
             // Every child expired → empty list; never pass [] (see §15.6).
             host?.maestroInterface?.updateEventData(eventIDs: expired.remainingListings)
+        case let myStuff as AddGameToMyStuffSelected:
+            // See §11, "Add to My Stuff prompt".
+            host?.addToMyStuff(listingId: myStuff.listingId)
         default:
             break // Interaction events (`CtaSelected`, `CardToggled`, …) are optional. Also catches
                   // `PanelResponseError` codes other than 401; none are sent today.
         }
     }
+
+    func onTopicSelected(selection: TopicChapterInfo) {
+        // The viewer picked a chapter in the Topics panel. Seek to
+        // `selection.startTime` (ISO-8601, as the feed sent it) and report the
+        // chapter's progress back with `updateTopicProgress(...)`. See §6.
+        host?.seekToTopic(selection)
+    }
+
+    // Every playable chapter across the current listings, re-sent only when
+    // that set changes. Use it as your queue for next-topic autoplay.
+    func onTopicListChanged(topics: [TopicChapterInfo]) {
+        host?.topics = topics
+    }
 }
 ```
+
+> **Not every event can seek to every chapter.** Some carry limited rewind rights —
+> roughly 15 minutes back from the live edge — until the viewer saves the show to
+> My Stuff, which starts its DVR. If your seek can fail for that reason, check
+> before you seek rather than after; the panel has no way to know your rights.
 
 ### Critical lifecycle rule
 
@@ -252,6 +273,15 @@ interface.didHidePanel()       // confirm `shouldHidePanel()`
 // (see §10 and §11):
 interface.updateKeyPlayProgress(eventId: event.listingId, keyPlayId: event.keyPlayId, progress: 0.42)
 interface.updateKeyPlayProgress(eventId: event.listingId, keyPlayId: event.keyPlayId, progress: nil)
+
+// Topics chapter playback. The chapter you report is the one the panel highlights
+// as playing, and `progress` fills its bar — so when your player moves on to the
+// next chapter, report that chapter and the highlight follows. Id-based — use the
+// listingId + chapterId from `onTopicSelected` / `onTopicListChanged`. Selecting
+// the chapter you're already reporting doesn't call `onTopicSelected` again.
+// Report `progress: nil` when no chapter is playing:
+interface.updateTopicProgress(listingId: selection.listingId, chapterId: selection.chapterId, progress: 0.42)
+interface.updateTopicProgress(listingId: selection.listingId, chapterId: selection.chapterId, progress: nil)
 
 // Replace the event-id set (multiview transitions, manual switches, etc.):
 interface.updateEventData(eventIDs: ["evt-new-listing"])
@@ -351,6 +381,8 @@ If you genuinely need your own outer scroll — arbitrary host content scrolling
 
 `MaestroPanel` already wraps itself in a focus section. Make sure your host view doesn't trap focus on a sibling — wrap the rest of your screen in its own focus section.
 
+When an overlay CTA routes the panel to a different tab, the panel takes focus onto that tab itself — see OVERLAYS.md § 10.
+
 ---
 
 ## 8. Rendering overlays
@@ -400,7 +432,7 @@ The event is **opaque** beyond `id` and `size`. Pass it to `MaestroOverlay` and 
 | Parameter | Default | Purpose |
 |---|---|---|
 | `event` | — | The event from `shouldShowOverlay(event:)`. |
-| `dismissTimeoutSeconds` | `5.0` | Auto-dismiss after this long. |
+| `dismissTimeoutSeconds` | `nil` | Force a fixed duration. Left `nil`, the overlay dismisses on the Rive file's `eventDone` event, falling back to the event's own duration and then to 8s. |
 | `onOverlayClicked` | `nil` | Called when the user activates the overlay (tap / Siri remote select). |
 | `onOverlayFinished` | `nil` | Called after the overlay finishes (timeout or user click). |
 | `maestroManager` | `.shared` | Override only for advanced testing. |
@@ -675,6 +707,36 @@ The SDK fetches and retries key plays itself against the endpoint configured via
 "Try Again" affordance in the panel re-requests that endpoint. There is no
 host-supplied index or `updateKeyPlaysData` callback in the Fox integration.
 
+### Add to My Stuff prompt
+
+Key Plays can ask the viewer to save the game's league to My Stuff before playing
+clips. It's off by default; turn it on per event:
+
+```swift
+interface.setAddGamesToMyStuffModalEnabled(true)
+```
+
+The SDK doesn't remember this setting — send it after every `userDidStartWatchingEvent(s)` and on every game change.
+
+While it's on, the prompt covers the Key Plays panel when the panel opens, and
+again in place of any clip the viewer selects. That clip does **not** play, and
+`onKeyPlaySelected` doesn't fire. The prompt only appears when a single event is
+playing, never in multiview: while a multiview is on screen — or a key play started
+from one is playing — the SDK keeps the prompt off even if you've turned it on, and
+applies your setting again once the viewer is back to a single event. You don't need
+to turn it off yourself for multiview.
+
+- **"+ My Stuff"** turns the prompt off and sends `AddGameToMyStuffSelected` to
+  `onPanelEvent`. Save the game to the viewer's My Stuff in response:
+
+  ```swift
+  case let myStuff as AddGameToMyStuffSelected:
+      host?.addToMyStuff(listingId: myStuff.listingId)
+  ```
+
+- **"Dismiss"** (or Menu/Back) hides it; it returns on the next panel open or
+  clip selection.
+
 ---
 
 ## 12. Stats configuration
@@ -740,7 +802,7 @@ For debugging the SDK itself (panel selection, overlay lifecycle, KMP state tran
 | `MaestroOverlay` | SwiftUI view that renders a `MaestroOverlayEvent`. |
 | `MaestroPanelType` | `.stats` / `.keyPlays` / `.multiview` — backed by `foxStats`, `foxKeyPlays`, `foxMultiview`. |
 | `MaestroOverlayEvent` | Overlay payload passed to `shouldShowOverlay`. Public surface: `id`, `size`. |
-| `MaestroEventDelegate` | Protocol your app implements (Fox extension — adds `onKeyPlaySelected`, `onNewMultiview`, `onKeyPlayListChanged`, `onNewSingleStream`, `onPanelEvent`). |
+| `MaestroEventDelegate` | Protocol your app implements (Fox extension — adds `onKeyPlaySelected`, `onNewMultiview`, `onKeyPlayListChanged`, `onNewSingleStream`, `onPanelEvent`, `onTopicSelected`, `onTopicListChanged`). |
 | `MaestroEventInterface` | Protocol the SDK returns from `userDidStartWatchingEvents`. Your one-way push channel. |
 | `MaestroPanelOverride` | Struct for generic overrides. |
 | `MaestroPanelOverrideError` | Error cases returned by `setDataToPanel`. |
@@ -749,9 +811,10 @@ For debugging the SDK itself (panel selection, overlay lifecycle, KMP state tran
 | `FoxKeyPlaysPanelOverrideInterfaces` | Enum of override interface names for key plays. |
 | `KeyPlayClipInfo` | Clip metadata delivered by `onKeyPlaySelected` / `onKeyPlayListChanged`. Key fields: `listingId`, `keyPlayId` — pass these to `updateKeyPlayProgress`. Also carries `keyPlayType` and `hasImpactTreatment` for your own analytics (see [`ANALYTICS.md` §2.2](./ANALYTICS.md#22-building-your-own-interaction-events)). |
 | `KeyPlayProgress` | Progress payload sent to KMP by `updateKeyPlayProgress(eventId:keyPlayId:progress:)`: `listingId`, `keyPlayId`, `progress`. |
+| `TopicChapterInfo` | A topic chapter and the span to seek to, delivered by `onTopicSelected` / `onTopicListChanged`. Fields: `listingId`, `chapterId`, `startTime`, `endTime` (ISO-8601 strings). Pass `listingId` + `chapterId` to `updateTopicProgress`. Replaces `TopicSelection`, which is deprecated and now an alias for this type. |
 | `NewMultiviewEvent` | Multiview switch payload. |
 | `NewSingleStreamEvent` | Single-stream switch payload. |
-| `PanelEvent` | Lifecycle event delivered to `onPanelEvent`. Fires on panel API errors (`PanelResponseError`, `code` 401 when the token expired), expired multiview listings (`RemainingChildrenOnExpiredListing`), panel CTA presses (`CtaSelected`) and stats card engagement (`CardToggled`, `CardImpression`, `CardFocused`, scoring-drive events). See ANALYTICS.md §2.2. |
+| `PanelEvent` | Lifecycle event delivered to `onPanelEvent`. Fires on panel API errors (`PanelResponseError`, `code` 401 when the token expired), expired multiview listings (`RemainingChildrenOnExpiredListing`), panel CTA presses (`CtaSelected`), stats card engagement (`CardToggled`, `CardImpression`, `CardFocused`, scoring-drive events) and "+ My Stuff" on the Key Plays prompt (`AddGameToMyStuffSelected`, carrying `listingId`). See ANALYTICS.md §2.2 and §11. |
 
 ---
 
